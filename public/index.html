@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Club Image Processor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+            max-width: 800px;
+            width: 100%;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .upload-section {
+            border: 3px dashed #e0e7ff;
+            border-radius: 15px;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 30px;
+            transition: all 0.3s ease;
+            background: #f8faff;
+        }
+
+        .upload-section:hover {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .upload-section.dragover {
+            border-color: #667eea;
+            background: #e0e7ff;
+            transform: scale(1.02);
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .upload-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 25px;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+            margin-bottom: 20px;
+        }
+
+        .upload-button:hover {
+            transform: translateY(-2px);
+        }
+
+        .file-info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #e0f2fe;
+            border-radius: 10px;
+            display: none;
+        }
+
+        .process-button {
+            background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
+            color: white;
+            padding: 15px 40px;
+            border: none;
+            border-radius: 25px;
+            font-size: 1.2rem;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 20px;
+            transition: transform 0.2s ease;
+            display: none;
+        }
+
+        .process-button:hover {
+            transform: translateY(-2px);
+        }
+
+        .process-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .results {
+            display: none;
+            margin-top: 30px;
+        }
+
+        .club-result {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-left: 4px solid #667eea;
+        }
+
+        .club-name {
+            font-size: 1.3rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .image-item {
+            background: white;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+        }
+
+        .error-item {
+            background: #ffebee;
+            color: #c62828;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 5px;
+            border-left: 3px solid #c62828;
+        }
+
+        .download-section {
+            text-align: center;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 2px solid #eee;
+        }
+
+        .download-button {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 25px;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+            margin: 10px;
+        }
+
+        .download-button:hover {
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🖼️ Club Image Processor</h1>
+            <p>Automate your Join Philly image processing workflow</p>
+        </div>
+
+        <div class="content">
+            <div class="upload-section" id="uploadSection">
+                <h3>Upload Your Fillout CSV</h3>
+                <p style="margin: 15px 0; color: #666;">Drop your CSV file here or click to browse</p>
+                
+                <input type="file" id="csvFile" class="file-input" accept=".csv" />
+                <button class="upload-button" onclick="document.getElementById('csvFile').click()">
+                    📁 Choose CSV File
+                </button>
+                
+                <div class="file-info" id="fileInfo">
+                    <p><strong>Selected:</strong> <span id="fileName"></span></p>
+                    <p><strong>Size:</strong> <span id="fileSize"></span></p>
+                </div>
+            </div>
+
+            <button class="process-button" id="processButton" onclick="processImages()">
+                🚀 Process Images
+            </button>
+
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>Processing images... This may take a few minutes.</p>
+            </div>
+
+            <div class="results" id="results">
+                <h3>Processing Results</h3>
+                <div id="resultsContent"></div>
+                
+                <div class="download-section">
+                    <button class="download-button" onclick="downloadImages()">
+                        📥 Download Processed Images
+                    </button>
+                    <button class="download-button" onclick="downloadCSV()">
+                        📊 Download Results CSV
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let processedResults = null;
+
+        // File upload handling
+        document.getElementById('csvFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                document.getElementById('fileName').textContent = file.name;
+                document.getElementById('fileSize').textContent = formatFileSize(file.size);
+                document.getElementById('fileInfo').style.display = 'block';
+                document.getElementById('processButton').style.display = 'block';
+            }
+        });
+
+        // Drag and drop functionality
+        const uploadSection = document.getElementById('uploadSection');
+        
+        uploadSection.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            uploadSection.classList.add('dragover');
+        });
+
+        uploadSection.addEventListener('dragleave', function(e) {
+            e.preventDefault();
+            uploadSection.classList.remove('dragover');
+        });
+
+        uploadSection.addEventListener('drop', function(e) {
+            e.preventDefault();
+            uploadSection.classList.remove('dragover');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0 && files[0].type === 'text/csv') {
+                document.getElementById('csvFile').files = files;
+                const file = files[0];
+                document.getElementById('fileName').textContent = file.name;
+                document.getElementById('fileSize').textContent = formatFileSize(file.size);
+                document.getElementById('fileInfo').style.display = 'block';
+                document.getElementById('processButton').style.display = 'block';
+            }
+        });
+
+        async function processImages() {
+            const fileInput = document.getElementById('csvFile');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('Please select a CSV file first.');
+                return;
+            }
+
+            // Show loading state
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('processButton').disabled = true;
+            document.getElementById('results').style.display = 'none';
+
+            try {
+                const formData = new FormData();
+                formData.append('csvFile', file);
+
+                const response = await fetch('/api/process-images', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    processedResults = result;
+                    displayResults(result);
+                } else {
+                    throw new Error(result.error || 'Processing failed');
+                }
+
+            } catch (error) {
+                console.error('Processing error:', error);
+                alert('Error processing images: ' + error.message);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('processButton').disabled = false;
+            }
+        }
+
+        function displayResults(results) {
+            const resultsContent = document.getElementById('resultsContent');
+            resultsContent.innerHTML = '';
+
+            results.results.forEach(club => {
+                const clubDiv = document.createElement('div');
+                clubDiv.className = 'club-result';
+                
+                let html = `<div class="club-name">${club.name}</div>`;
+                
+                // Show processed images
+                if (club.processed.length > 0) {
+                    html += '<h4>✅ Successfully Processed:</h4>';
+                    club.processed.forEach(img => {
+                        html += `<div class="image-item">
+                            <strong>${img.type}:</strong> ${img.filename}<br>
+                            <strong>Alt Text:</strong> ${img.altText}<br>
+                            <strong>Size:</strong> ${img.width}px wide, WebP format
+                        </div>`;
+                    });
+                }
+                
+                // Show errors
+                if (club.errors.length > 0) {
+                    html += '<h4>❌ Errors:</h4>';
+                    club.errors.forEach(error => {
+                        html += `<div class="error-item">${error}</div>`;
+                    });
+                }
+                
+                clubDiv.innerHTML = html;
+                resultsContent.appendChild(clubDiv);
+            });
+
+            document.getElementById('results').style.display = 'block';
+        }
+
+        function downloadImages() {
+            // In a real implementation, this would create a ZIP file of all processed images
+            alert('Image download feature coming soon! For now, processed images are saved in the /processed folder.');
+        }
+
+        function downloadCSV() {
+            if (!processedResults) {
+                alert('No results to download.');
+                return;
+            }
+
+            // Create CSV content
+            let csvContent = 'Club Name,Image Type,Filename,Alt Text,Status\n';
+            
+            processedResults.results.forEach(club => {
+                club.processed.forEach(img => {
+                    csvContent += `"${club.name}","${img.type}","${img.filename}","${img.altText}","Success"\n`;
+                });
+                
+                club.errors.forEach(error => {
+                    csvContent += `"${club.name}","Error","","","${error}"\n`;
+                });
+            });
+
+            // Download CSV
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'processed-results.csv';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+    </script>
+</body>
+</html>
