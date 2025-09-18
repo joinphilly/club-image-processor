@@ -1,4 +1,4 @@
-// Updated server.js - CSV parsing section
+// Updated server.js with Cloudinary integration
 const express = require('express');
 const multer = require('multer');
 const sharp = require('sharp');
@@ -6,12 +6,21 @@ const fetch = require('node-fetch');
 const path = require('path');
 const fs = require('fs').promises;
 const { v4: uuidv4 } = require('uuid');
+const cloudinary = require('cloudinary').v2;
 
 const app = express();
 const upload = multer({ dest: 'uploads/' });
 
+// Configure Cloudinary
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
 // Serve static files
 app.use(express.static('public'));
+app.use(express.json());
 
 // Parse CSV with proper RFC 4180 compliant parsing
 function parseCSV(csvText) {
@@ -105,9 +114,14 @@ function parseCSV(csvText) {
             
             const club = {
                 name: cleanClubName(clubName || 'Unknown Club'),
+                originalName: clubName, // Keep original for Airtable updates
                 heroImage: (heroImage && isValidUrl(heroImage)) ? heroImage : null,
                 logoImage: (logoImage && isValidUrl(logoImage)) ? logoImage : null,
-                galleryImages: []
+                galleryImages: [],
+                // Store other relevant data for Airtable updates
+                submissionId: values[0], // For matching records
+                email: values[8], // Club contact info
+                rawData: values // Full row data for reference
             };
             
             // Process gallery images
@@ -165,16 +179,21 @@ app.post('/api/process-images', upload.single('csvFile'), async (req, res) => {
         for (const club of clubs) {
             console.log(`Processing club: ${club.name}`);
             const clubResult = {
-                name: club.name,
+                name: club.originalName,
+                cleanName: club.name,
+                submissionId: club.submissionId,
+                email: club.email,
                 processed: [],
-                errors: []
+                errors: [],
+                cloudinaryUrls: [] // For downloads
             };
             
             // Process hero image
             if (club.heroImage) {
                 try {
-                    const processed = await processImage(club.heroImage, club.name, 'hero', 1600);
+                    const processed = await processImageToCloudinary(club.heroImage, club.name, 'hero', 1600);
                     clubResult.processed.push(processed);
+                    clubResult.cloudinaryUrls.push(processed.cloudinaryUrl);
                 } catch (error) {
                     console.error(`Hero image error for ${club.name}:`, error.message);
                     clubResult.errors.push(`Hero image: ${error.message}`);
@@ -184,8 +203,9 @@ app.post('/api/process-images', upload.single('csvFile'), async (req, res) => {
             // Process logo image
             if (club.logoImage) {
                 try {
-                    const processed = await processImage(club.logoImage, club.name, 'logo', 400);
+                    const processed = await processImageToCloudinary(club.logoImage, club.name, 'logo', 400);
                     clubResult.processed.push(processed);
+                    clubResult.cloudinaryUrls.push(processed.cloudinaryUrl);
                 } catch (error) {
                     console.error(`Logo image error for ${club.name}:`, error.message);
                     clubResult.errors.push(`Logo image: ${error.message}`);
@@ -197,8 +217,9 @@ app.post('/api/process-images', upload.single('csvFile'), async (req, res) => {
                 const galleryUrl = club.galleryImages[i];
                 if (galleryUrl) {
                     try {
-                        const processed = await processImage(galleryUrl, club.name, `gallery-${i+1}`, 1200);
+                        const processed = await processImageToCloudinary(galleryUrl, club.name, `gallery-${i+1}`, 1200);
                         clubResult.processed.push(processed);
+                        clubResult.cloudinaryUrls.push(processed.cloudinaryUrl);
                     } catch (error) {
                         console.error(`Gallery image ${i+1} error for ${club.name}:`, error.message);
                         clubResult.errors.push(`Gallery image ${i+1}: ${error.message}`);
@@ -224,8 +245,8 @@ app.post('/api/process-images', upload.single('csvFile'), async (req, res) => {
     }
 });
 
-// Image processing function using Sharp
-async function processImage(imageUrl, clubName, imageType, targetWidth) {
+// Image processing function using Sharp + Cloudinary
+async function processImageToCloudinary(imageUrl, clubName, imageType, targetWidth) {
     try {
         console.log(`Processing ${imageType} for ${clubName}: ${imageUrl}`);
         
@@ -237,33 +258,49 @@ async function processImage(imageUrl, clubName, imageType, targetWidth) {
         
         const imageBuffer = await response.buffer();
         
-        // Generate filename
-        const filename = `${clubName}-${imageType}.webp`;
-        const outputPath = path.join('public', 'processed', filename);
-        
-        // Ensure output directory exists
-        await fs.mkdir(path.dirname(outputPath), { recursive: true });
-        
         // Process image with Sharp
-        await sharp(imageBuffer)
+        const processedBuffer = await sharp(imageBuffer)
             .resize(targetWidth, null, { 
                 withoutEnlargement: true,
                 fit: 'inside'
             })
             .webp({ quality: 85 })
-            .toFile(outputPath);
+            .toBuffer();
         
-        // Generate alt text in Brian's format
-        const altText = generateAltText(clubName, imageType);
+        // Upload to Cloudinary
+        const filename = `${clubName}-${imageType}`;
         
-        return {
-            originalUrl: imageUrl,
-            filename: filename,
-            path: `/processed/${filename}`,
-            altText: altText,
-            width: targetWidth,
-            type: imageType
-        };
+        return new Promise((resolve, reject) => {
+            cloudinary.uploader.upload_stream(
+                {
+                    resource_type: 'image',
+                    public_id: `joinphilly/${filename}`,
+                    format: 'webp',
+                    quality: 'auto:good',
+                    tags: ['joinphilly', 'processed', imageType]
+                },
+                (error, result) => {
+                    if (error) {
+                        reject(error);
+                    } else {
+                        // Generate alt text in Brian's format
+                        const altText = generateAltText(clubName, imageType);
+                        
+                        resolve({
+                            originalUrl: imageUrl,
+                            cloudinaryUrl: result.secure_url,
+                            publicId: result.public_id,
+                            filename: `${filename}.webp`,
+                            altText: altText,
+                            width: result.width,
+                            height: result.height,
+                            type: imageType,
+                            format: 'webp'
+                        });
+                    }
+                }
+            ).end(processedBuffer);
+        });
         
     } catch (error) {
         console.error(`Image processing failed for ${imageUrl}:`, error);
@@ -290,7 +327,52 @@ function generateAltText(clubName, imageType) {
     }
 }
 
+// Download processed images endpoint
+app.post('/api/download-images', express.json(), async (req, res) => {
+    try {
+        const { results } = req.body;
+        
+        if (!results || !Array.isArray(results)) {
+            return res.status(400).json({ error: 'No results provided for download' });
+        }
+        
+        // Create a ZIP file with all processed images
+        const JSZip = require('jszip');
+        const zip = new JSZip();
+        
+        for (const club of results) {
+            if (club.cloudinaryUrls && club.cloudinaryUrls.length > 0) {
+                const clubFolder = zip.folder(club.cleanName);
+                
+                for (const processed of club.processed) {
+                    try {
+                        // Download from Cloudinary
+                        const response = await fetch(processed.cloudinaryUrl);
+                        const buffer = await response.buffer();
+                        
+                        clubFolder.file(processed.filename, buffer);
+                    } catch (error) {
+                        console.error(`Failed to download ${processed.filename}:`, error);
+                    }
+                }
+            }
+        }
+        
+        // Generate ZIP file
+        const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
+        
+        res.setHeader('Content-Type', 'application/zip');
+        res.setHeader('Content-Disposition', 'attachment; filename="processed-images.zip"');
+        res.send(zipBuffer);
+        
+    } catch (error) {
+        console.error('Download error:', error);
+        res.status(500).json({ error: 'Failed to create download package' });
+    }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    console.log('Cloudinary configured:', !!process.env.CLOUDINARY_CLOUD_NAME);
 });
