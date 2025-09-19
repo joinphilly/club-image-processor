@@ -13,8 +13,20 @@ const upload = multer({ dest: 'uploads/' });
 
 // Configure Cloudinary
 if (process.env.CLOUDINARY_URL) {
-    // Use the CLOUDINARY_URL environment variable (preferred method)
-    cloudinary.config(process.env.CLOUDINARY_URL);
+    // Parse the CLOUDINARY_URL manually to ensure proper configuration
+    const cloudinaryUrl = process.env.CLOUDINARY_URL;
+    const urlParts = cloudinaryUrl.match(/cloudinary:\/\/(\d+):([^@]+)@(.+)/);
+    
+    if (urlParts) {
+        cloudinary.config({
+            cloud_name: urlParts[3],
+            api_key: urlParts[1],
+            api_secret: urlParts[2]
+        });
+    } else {
+        // Fallback to automatic parsing
+        cloudinary.config(process.env.CLOUDINARY_URL);
+    }
 } else {
     // Fallback to individual environment variables
     cloudinary.config({
@@ -389,5 +401,10 @@ app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log('Environment check:');
     console.log('CLOUDINARY_URL:', process.env.CLOUDINARY_URL ? 'Set' : 'Missing');
-    console.log('Cloudinary config:', cloudinary.config());
+    
+    // Log the actual cloudinary config (without secrets)
+    const config = cloudinary.config();
+    console.log('Cloudinary cloud_name:', config.cloud_name);
+    console.log('Cloudinary api_key:', config.api_key ? config.api_key.substring(0, 6) + '...' : 'Missing');
+    console.log('Cloudinary api_secret:', config.api_secret ? '***set***' : 'Missing');
 });
