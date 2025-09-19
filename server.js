@@ -12,11 +12,17 @@ const app = express();
 const upload = multer({ dest: 'uploads/' });
 
 // Configure Cloudinary
-cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET
-});
+if (process.env.CLOUDINARY_URL) {
+    // Use the CLOUDINARY_URL environment variable (preferred method)
+    cloudinary.config(process.env.CLOUDINARY_URL);
+} else {
+    // Fallback to individual environment variables
+    cloudinary.config({
+        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+        api_key: process.env.CLOUDINARY_API_KEY,
+        api_secret: process.env.CLOUDINARY_API_SECRET
+    });
+}
 
 // Serve static files
 app.use(express.static('public'));
@@ -251,8 +257,8 @@ async function processImageToCloudinary(imageUrl, clubName, imageType, targetWid
         console.log(`Processing ${imageType} for ${clubName}: ${imageUrl}`);
         
         // Check if Cloudinary is configured
-        if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
-            throw new Error('Cloudinary credentials not configured. Please set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET environment variables.');
+        if (!process.env.CLOUDINARY_URL && (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET)) {
+            throw new Error('Cloudinary not configured. Please set CLOUDINARY_URL environment variable or individual CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET.');
         }
         
         // Download image
@@ -382,8 +388,6 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log('Environment check:');
-    console.log('CLOUDINARY_CLOUD_NAME:', process.env.CLOUDINARY_CLOUD_NAME ? 'Set' : 'Missing');
-    console.log('CLOUDINARY_API_KEY:', process.env.CLOUDINARY_API_KEY ? 'Set' : 'Missing');
-    console.log('CLOUDINARY_API_SECRET:', process.env.CLOUDINARY_API_SECRET ? 'Set' : 'Missing');
-    console.log('Cloudinary configured:', !!process.env.CLOUDINARY_CLOUD_NAME);
+    console.log('CLOUDINARY_URL:', process.env.CLOUDINARY_URL ? 'Set' : 'Missing');
+    console.log('Cloudinary config:', cloudinary.config());
 });
