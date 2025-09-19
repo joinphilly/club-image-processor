@@ -5,7 +5,115 @@ const sharp = require('sharp');
 const fetch = require('node-fetch');
 const path = require('path');
 const fs = require('fs').promises;
-const { v4: uuidv4 } = require('uuid');
+const { v4: uuidv4 }
+
+// Airtable integration function
+async function updateAirtableRecord(clubResult) {
+    try {
+        const baseId = process.env.AIRTABLE_BASE_ID;
+        const tableName = process.env.AIRTABLE_TABLE_NAME;
+        const token = process.env.AIRTABLE_TOKEN;
+        
+        // First, find the record by searching for submission ID or club name
+        const searchUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableName)}`;
+        
+        // Try to find record by submission ID first, then by club name
+        let filterFormula = '';
+        if (clubResult.submissionId) {
+            filterFormula = `{Submission ID} = "${clubResult.submissionId}"`;
+        } else {
+            filterFormula = `{What's the name of your club/community/group?} = "${clubResult.name}"`;
+        }
+        
+        const searchResponse = await fetch(`${searchUrl}?filterByFormula=${encodeURIComponent(filterFormula)}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!searchResponse.ok) {
+            throw new Error(`Airtable search failed: ${searchResponse.status}`);
+        }
+        
+        const searchData = await searchResponse.json();
+        
+        if (searchData.records.length === 0) {
+            throw new Error('No matching Airtable record found');
+        }
+        
+        const recordId = searchData.records[0].id;
+        console.log(`Found Airtable record ${recordId} for ${clubResult.name}`);
+        
+        // Build update payload with processed images and alt text
+        const updateFields = {};
+        
+        for (const processed of clubResult.processed) {
+            switch (processed.type) {
+                case 'hero':
+                    updateFields['Processed Hero Image'] = processed.cloudinaryUrl;
+                    updateFields['Hero Alt Text'] = processed.altText;
+                    break;
+                case 'logo':
+                    updateFields['Processed Logo Image'] = processed.cloudinaryUrl;
+                    updateFields['Logo Alt Text'] = processed.altText;
+                    break;
+                case 'gallery-1':
+                    updateFields['Processed Gallery Image 1'] = processed.cloudinaryUrl;
+                    updateFields['Gallery 1 Alt Text'] = processed.altText;
+                    break;
+                case 'gallery-2':
+                    updateFields['Processed Gallery Image 2'] = processed.cloudinaryUrl;
+                    updateFields['Gallery 2 Alt Text'] = processed.altText;
+                    break;
+                case 'gallery-3':
+                    updateFields['Processed Gallery Image 3'] = processed.cloudinaryUrl;
+                    updateFields['Gallery 3 Alt Text'] = processed.altText;
+                    break;
+                case 'gallery-4':
+                    updateFields['Processed Gallery Image 4'] = processed.cloudinaryUrl;
+                    updateFields['Gallery 4 Alt Text'] = processed.altText;
+                    break;
+            }
+        }
+        
+        // Add processing timestamp
+        updateFields['Images Processed At'] = new Date().toISOString();
+        updateFields['Processing Status'] = 'Completed';
+        
+        // Update the record
+        const updateUrl = `${searchUrl}/${recordId}`;
+        const updateResponse = await fetch(updateUrl, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                fields: updateFields
+            })
+        });
+        
+        if (!updateResponse.ok) {
+            const errorData = await updateResponse.json();
+            throw new Error(`Airtable update failed: ${errorData.error?.message || updateResponse.status}`);
+        }
+        
+        const updateData = await updateResponse.json();
+        console.log(`Successfully updated Airtable record for ${clubResult.name}`);
+        
+        return {
+            success: true,
+            recordId: recordId,
+            fieldsUpdated: Object.keys(updateFields).length,
+            message: `Updated ${Object.keys(updateFields).length} fields in Airtable`
+        };
+        
+    } catch (error) {
+        console.error('Airtable update error:', error);
+        throw error;
+    }
+} = require('uuid');
 const cloudinary = require('cloudinary').v2;
 
 const app = express();
@@ -203,7 +311,8 @@ app.post('/api/process-images', upload.single('csvFile'), async (req, res) => {
                 email: club.email,
                 processed: [],
                 errors: [],
-                cloudinaryUrls: [] // For downloads
+                cloudinaryUrls: [], // For downloads
+                airtableUpdate: null // Store update info
             };
             
             // Process hero image
@@ -246,6 +355,24 @@ app.post('/api/process-images', upload.single('csvFile'), async (req, res) => {
             }
             
             results.push(clubResult);
+        }
+        
+        // Try to update Airtable records if configured
+        if (process.env.AIRTABLE_BASE_ID && process.env.AIRTABLE_TABLE_NAME && process.env.AIRTABLE_TOKEN) {
+            console.log('Attempting to update Airtable records...');
+            for (const result of results) {
+                if (result.processed.length > 0) {
+                    try {
+                        const airtableUpdate = await updateAirtableRecord(result);
+                        result.airtableUpdate = airtableUpdate;
+                    } catch (error) {
+                        console.error(`Failed to update Airtable for ${result.name}:`, error.message);
+                        result.errors.push(`Airtable update failed: ${error.message}`);
+                    }
+                }
+            }
+        } else {
+            console.log('Airtable not configured - skipping database updates');
         }
         
         // Clean up uploaded file
