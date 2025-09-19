@@ -299,7 +299,6 @@ async function processImageToCloudinary(imageUrl, clubName, imageType, targetWid
                     resource_type: 'image',
                     public_id: `joinphilly/${filename}`,
                     format: 'webp',
-                    quality: 'auto:good',
                     tags: ['joinphilly', 'processed', imageType]
                 },
                 (error, result) => {
@@ -352,7 +351,62 @@ function generateAltText(clubName, imageType) {
     }
 }
 
-// Download processed images endpoint
+// Test Cloudinary configuration endpoint
+app.get('/api/test-cloudinary', async (req, res) => {
+    try {
+        const config = cloudinary.config();
+        
+        if (!config.cloud_name || !config.api_key || !config.api_secret) {
+            return res.json({
+                error: 'Cloudinary not properly configured',
+                config: {
+                    cloud_name: config.cloud_name || 'missing',
+                    api_key: config.api_key ? 'set' : 'missing',
+                    api_secret: config.api_secret ? 'set' : 'missing'
+                }
+            });
+        }
+        
+        // Test a simple upload with minimal parameters
+        const testImage = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+        
+        const result = await new Promise((resolve, reject) => {
+            cloudinary.uploader.upload_stream(
+                {
+                    resource_type: 'image',
+                    public_id: 'test-upload-' + Date.now()
+                },
+                (error, result) => {
+                    if (error) {
+                        reject(error);
+                    } else {
+                        resolve(result);
+                    }
+                }
+            ).end(testImage);
+        });
+        
+        // Clean up test image
+        await cloudinary.uploader.destroy(result.public_id);
+        
+        res.json({
+            success: true,
+            message: 'Cloudinary configuration is working',
+            test_result: {
+                public_id: result.public_id,
+                secure_url: result.secure_url
+            }
+        });
+        
+    } catch (error) {
+        console.error('Cloudinary test error:', error);
+        res.json({
+            error: 'Cloudinary test failed',
+            message: error.message,
+            details: error
+        });
+    }
+});
 app.post('/api/download-images', express.json(), async (req, res) => {
     try {
         const { results } = req.body;
