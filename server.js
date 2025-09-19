@@ -250,6 +250,11 @@ async function processImageToCloudinary(imageUrl, clubName, imageType, targetWid
     try {
         console.log(`Processing ${imageType} for ${clubName}: ${imageUrl}`);
         
+        // Check if Cloudinary is configured
+        if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+            throw new Error('Cloudinary credentials not configured. Please set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET environment variables.');
+        }
+        
         // Download image
         const response = await fetch(imageUrl);
         if (!response.ok) {
@@ -281,8 +286,10 @@ async function processImageToCloudinary(imageUrl, clubName, imageType, targetWid
                 },
                 (error, result) => {
                     if (error) {
-                        reject(error);
+                        console.error('Cloudinary upload error:', error);
+                        reject(new Error(`Cloudinary upload failed: ${error.message}`));
                     } else {
+                        console.log('Cloudinary upload successful:', result.secure_url);
                         // Generate alt text in Brian's format
                         const altText = generateAltText(clubName, imageType);
                         
@@ -374,5 +381,9 @@ app.post('/api/download-images', express.json(), async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    console.log('Environment check:');
+    console.log('CLOUDINARY_CLOUD_NAME:', process.env.CLOUDINARY_CLOUD_NAME ? 'Set' : 'Missing');
+    console.log('CLOUDINARY_API_KEY:', process.env.CLOUDINARY_API_KEY ? 'Set' : 'Missing');
+    console.log('CLOUDINARY_API_SECRET:', process.env.CLOUDINARY_API_SECRET ? 'Set' : 'Missing');
     console.log('Cloudinary configured:', !!process.env.CLOUDINARY_CLOUD_NAME);
 });
