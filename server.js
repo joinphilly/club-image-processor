@@ -6,6 +6,7 @@ const fetch = require('node-fetch');
 const path = require('path');
 const fs = require('fs').promises;
 const cloudinary = require('cloudinary').v2;
+const JSZip = require('jszip');
 
 const app = express();
 const upload = multer({ dest: 'uploads/' });
@@ -379,13 +380,19 @@ async function updateAirtableRecord(clubResult) {
         // First, find the record by searching for submission ID or club name
         const searchUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableName)}`;
         
-        // Try to find record by submission ID first, then by club name
+        // Try to find record by RecordID first, then by Name
         let filterFormula = '';
-        if (clubResult.submissionId) {
-            filterFormula = `{Submission ID} = "${clubResult.submissionId}"`;
+        if (clubResult.submissionId && clubResult.submissionId.trim()) {
+            // Try RecordID field
+            filterFormula = `{RecordID} = "${clubResult.submissionId.replace(/"/g, '\\"')}"`;
+        } else if (clubResult.name && clubResult.name.trim()) {
+            // Fallback to Name field
+            filterFormula = `{Name} = "${clubResult.name.replace(/"/g, '\\"')}"`;
         } else {
-            filterFormula = `{What's the name of your club/community/group?} = "${clubResult.name}"`;
+            throw new Error('No submission ID or club name available for matching');
         }
+        
+        console.log('Airtable search filter:', filterFormula);
         
         const searchResponse = await fetch(`${searchUrl}?filterByFormula=${encodeURIComponent(filterFormula)}`, {
             headers: {
@@ -395,7 +402,9 @@ async function updateAirtableRecord(clubResult) {
         });
         
         if (!searchResponse.ok) {
-            throw new Error(`Airtable search failed: ${searchResponse.status}`);
+            const errorData = await searchResponse.json().catch(() => ({ error: 'Unknown error' }));
+            console.error('Airtable search error details:', errorData);
+            throw new Error(`Airtable search failed: ${searchResponse.status} - ${errorData.error?.message || 'Unknown error'}`);
         }
         
         const searchData = await searchResponse.json();
@@ -407,41 +416,48 @@ async function updateAirtableRecord(clubResult) {
         const recordId = searchData.records[0].id;
         console.log(`Found Airtable record ${recordId} for ${clubResult.name}`);
         
-        // Build update payload with processed images and alt text
+        // Build update payload using existing Airtable fields
         const updateFields = {};
+        const galleryUrls = [];
         
         for (const processed of clubResult.processed) {
             switch (processed.type) {
                 case 'hero':
-                    updateFields['Processed Hero Image'] = processed.cloudinaryUrl;
+                    updateFields['Hero URL'] = processed.cloudinaryUrl;
                     updateFields['Hero Alt Text'] = processed.altText;
                     break;
                 case 'logo':
-                    updateFields['Processed Logo Image'] = processed.cloudinaryUrl;
+                    updateFields['Logo URL'] = processed.cloudinaryUrl;
                     updateFields['Logo Alt Text'] = processed.altText;
                     break;
                 case 'gallery-1':
-                    updateFields['Processed Gallery Image 1'] = processed.cloudinaryUrl;
                     updateFields['Gallery 1 Alt Text'] = processed.altText;
+                    galleryUrls[0] = processed.cloudinaryUrl;
                     break;
                 case 'gallery-2':
-                    updateFields['Processed Gallery Image 2'] = processed.cloudinaryUrl;
                     updateFields['Gallery 2 Alt Text'] = processed.altText;
+                    galleryUrls[1] = processed.cloudinaryUrl;
                     break;
                 case 'gallery-3':
-                    updateFields['Processed Gallery Image 3'] = processed.cloudinaryUrl;
                     updateFields['Gallery 3 Alt Text'] = processed.altText;
+                    galleryUrls[2] = processed.cloudinaryUrl;
                     break;
                 case 'gallery-4':
-                    updateFields['Processed Gallery Image 4'] = processed.cloudinaryUrl;
                     updateFields['Gallery 4 Alt Text'] = processed.altText;
+                    galleryUrls[3] = processed.cloudinaryUrl;
                     break;
             }
         }
         
-        // Add processing timestamp
-        updateFields['Images Processed At'] = new Date().toISOString();
-        updateFields['Processing Status'] = 'Completed';
+        // If we have gallery images, update the Gallery URLs JSON field
+        if (galleryUrls.length > 0) {
+            updateFields['Gallery URLs (JSON)'] = JSON.stringify(galleryUrls.filter(url => url));
+        }
+        
+        // Update status and timestamp using existing fields
+        updateFields['Status'] = 'Images Processed';
+        updateFields['Last Modified'] = new Date().toISOString();
+        updateFields['Processed'] = 1; // Mark as processed
         
         // Update the record
         const updateUrl = `${searchUrl}/${recordId}`;
@@ -495,8 +511,8 @@ app.get('/api/test-airtable', async (req, res) => {
             });
         }
         
-        // Test basic API access
-        const testUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableName)}?maxRecords=1`;
+        // Test basic API access - get first 3 records to see field structure
+        const testUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableName)}?maxRecords=3`;
         
         const response = await fetch(testUrl, {
             headers: {
@@ -517,13 +533,19 @@ app.get('/api/test-airtable', async (req, res) => {
         
         const data = await response.json();
         
+        // Show available field names for debugging
+        const availableFields = data.records.length > 0 ? Object.keys(data.records[0].fields) : [];
+        
         res.json({
             success: true,
             message: 'Airtable connection working',
             recordCount: data.records.length,
+            availableFields: availableFields,
             sampleRecord: data.records[0] ? {
                 id: data.records[0].id,
-                fields: Object.keys(data.records[0].fields)
+                firstFewFields: Object.fromEntries(
+                    Object.entries(data.records[0].fields).slice(0, 5)
+                )
             } : null
         });
         
@@ -600,7 +622,6 @@ app.post('/api/download-images', express.json(), async (req, res) => {
         }
         
         // Create a ZIP file with all processed images
-        const JSZip = require('jszip');
         const zip = new JSZip();
         
         for (const club of results) {
