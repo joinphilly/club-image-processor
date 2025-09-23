@@ -477,7 +477,63 @@ async function updateAirtableRecord(clubResult) {
     }
 }
 
-// Test Cloudinary configuration endpoint
+// Test Airtable configuration endpoint
+app.get('/api/test-airtable', async (req, res) => {
+    try {
+        const baseId = process.env.AIRTABLE_BASE_ID;
+        const tableName = process.env.AIRTABLE_TABLE_NAME;
+        const token = process.env.AIRTABLE_TOKEN;
+        
+        if (!baseId || !tableName || !token) {
+            return res.json({
+                error: 'Airtable not configured',
+                config: {
+                    base_id: baseId ? 'set' : 'missing',
+                    table_name: tableName ? 'set' : 'missing',
+                    token: token ? 'set' : 'missing'
+                }
+            });
+        }
+        
+        // Test basic API access
+        const testUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableName)}?maxRecords=1`;
+        
+        const response = await fetch(testUrl, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            return res.json({
+                error: 'Airtable API failed',
+                status: response.status,
+                message: errorText,
+                url: testUrl.replace(token, 'TOKEN_HIDDEN')
+            });
+        }
+        
+        const data = await response.json();
+        
+        res.json({
+            success: true,
+            message: 'Airtable connection working',
+            recordCount: data.records.length,
+            sampleRecord: data.records[0] ? {
+                id: data.records[0].id,
+                fields: Object.keys(data.records[0].fields)
+            } : null
+        });
+        
+    } catch (error) {
+        res.json({
+            error: 'Airtable test failed',
+            message: error.message
+        });
+    }
+});
 app.get('/api/test-cloudinary', async (req, res) => {
     try {
         const config = cloudinary.config();
