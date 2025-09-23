@@ -361,6 +361,20 @@
                     });
                 }
                 
+                // Show Airtable update status
+                if (club.airtableUpdate) {
+                    if (club.airtableUpdate.success) {
+                        html += `<div class="image-item" style="background: #e6fffa; border-left: 3px solid #38a169;">
+                            <strong>📊 Airtable Updated:</strong> ${club.airtableUpdate.message}<br>
+                            <strong>Record ID:</strong> ${club.airtableUpdate.recordId}
+                        </div>`;
+                    }
+                } else if (club.processed.length > 0) {
+                    html += `<div class="image-item" style="background: #fffaf0; border-left: 3px solid #dd6b20;">
+                        <strong>📊 Airtable:</strong> Not configured - add AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME, and AIRTABLE_TOKEN to enable automatic updates
+                    </div>`;
+                }
+                
                 // Show errors
                 if (club.errors.length > 0) {
                     html += '<h4>❌ Errors:</h4>';
@@ -377,8 +391,42 @@
         }
 
         function downloadImages() {
-            // In a real implementation, this would create a ZIP file of all processed images
-            alert('Image download feature coming soon! For now, processed images are saved in the /processed folder.');
+            if (!processedResults) {
+                alert('No results to download.');
+                return;
+            }
+
+            // Send results to backend for ZIP creation
+            fetch('/api/download-images', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    results: processedResults.results
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Download failed');
+                }
+                return response.blob();
+            })
+            .then(blob => {
+                // Create download link
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'processed-club-images.zip';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            })
+            .catch(error => {
+                console.error('Download error:', error);
+                alert('Failed to download images: ' + error.message);
+            });
         }
 
         function downloadCSV() {
