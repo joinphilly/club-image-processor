@@ -488,9 +488,8 @@ async function updateAirtableRecord(clubResult) {
             updateFields['Gallery URLs (JSON)'] = JSON.stringify(galleryUrls.filter(url => url));
         }
         
-        // Update status and mark as processed (remove computed fields)
-        updateFields['Status'] = 'Images Processed';
-        updateFields['Processed'] = 1; // Mark as processed
+        // Update only the image fields that should work reliably
+        // Remove status updates that might have field type conflicts
         
         // Update the record
         const updateUrl = `${searchUrl}/${recordId}`;
