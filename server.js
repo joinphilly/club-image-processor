@@ -377,40 +377,74 @@ async function updateAirtableRecord(clubResult) {
         const tableName = process.env.AIRTABLE_TABLE_NAME;
         const token = process.env.AIRTABLE_TOKEN;
         
-        // First, find the record by searching for submission ID or club name
+        // First, find the record by searching for RecordID or club name
         const searchUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableName)}`;
         
-        // Try to find record by RecordID first, then by Name
-        let filterFormula = '';
+        // Try multiple search strategies to find the record
+        let searchResponse;
+        let searchData;
+        
+        // Strategy 1: Try Submission ID if available
         if (clubResult.submissionId && clubResult.submissionId.trim()) {
-            // Try RecordID field
-            filterFormula = `{RecordID} = "${clubResult.submissionId.replace(/"/g, '\\"')}"`;
-        } else if (clubResult.name && clubResult.name.trim()) {
-            // Fallback to Name field
-            filterFormula = `{Name} = "${clubResult.name.replace(/"/g, '\\"')}"`;
-        } else {
-            throw new Error('No submission ID or club name available for matching');
+            const submissionIdFilter = `{Submission ID} = "${clubResult.submissionId.replace(/"/g, '\\"')}"`;
+            console.log('Trying Submission ID search:', submissionIdFilter);
+            
+            searchResponse = await fetch(`${searchUrl}?filterByFormula=${encodeURIComponent(submissionIdFilter)}`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (searchResponse.ok) {
+                searchData = await searchResponse.json();
+                if (searchData.records.length > 0) {
+                    console.log('Found record by Submission ID');
+                }
+            }
         }
         
-        console.log('Airtable search filter:', filterFormula);
-        
-        const searchResponse = await fetch(`${searchUrl}?filterByFormula=${encodeURIComponent(filterFormula)}`, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
+        // Strategy 2: If RecordID search failed, try by Name
+        if (!searchData || searchData.records.length === 0) {
+            if (clubResult.name && clubResult.name.trim()) {
+                // Try original name first, then clean name
+                const names = [clubResult.name, clubResult.cleanName].filter(n => n && n.trim());
+                
+                for (const nameToTry of names) {
+                    const nameFilter = `{Name} = "${nameToTry.replace(/"/g, '\\"')}"`;
+                    console.log('Trying Name search:', nameFilter);
+                    
+                    searchResponse = await fetch(`${searchUrl}?filterByFormula=${encodeURIComponent(nameFilter)}`, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (searchResponse.ok) {
+                        searchData = await searchResponse.json();
+                        if (searchData.records.length > 0) {
+                            console.log(`Found record by Name: "${nameToTry}"`);
+                            break;
+                        }
+                    }
+                }
             }
-        });
+        }
         
+        // Check if we found anything
         if (!searchResponse.ok) {
             const errorData = await searchResponse.json().catch(() => ({ error: 'Unknown error' }));
             console.error('Airtable search error details:', errorData);
             throw new Error(`Airtable search failed: ${searchResponse.status} - ${errorData.error?.message || 'Unknown error'}`);
         }
         
-        const searchData = await searchResponse.json();
-        
-        if (searchData.records.length === 0) {
-            throw new Error('No matching Airtable record found');
+        if (!searchData || searchData.records.length === 0) {
+            // Log what we tried to search for
+            console.log('Search failed. Looking for:');
+            console.log('- Submission ID:', clubResult.submissionId);
+            console.log('- Name:', clubResult.name);
+            throw new Error(`No matching Airtable record found. Tried Submission ID "${clubResult.submissionId}" and Name "${clubResult.name}"`);
         }
         
         const recordId = searchData.records[0].id;
