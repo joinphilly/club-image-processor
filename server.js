@@ -488,9 +488,8 @@ async function updateAirtableRecord(clubResult) {
             updateFields['Gallery URLs (JSON)'] = JSON.stringify(galleryUrls.filter(url => url));
         }
         
-        // Update status and timestamp using existing fields
+        // Update status and mark as processed (remove computed fields)
         updateFields['Status'] = 'Images Processed';
-        updateFields['Last Modified'] = new Date().toISOString();
         updateFields['Processed'] = 1; // Mark as processed
         
         // Update the record
