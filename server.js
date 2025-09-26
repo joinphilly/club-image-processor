@@ -1,4 +1,4 @@
-// Clean server.js with Airtable integration - no uuid import
+// Complete server.js with webhook endpoint for n8n integration
 const express = require('express');
 const multer = require('multer');
 const sharp = require('sharp');
@@ -174,7 +174,7 @@ function cleanClubName(name) {
         .substring(0, 50); // Limit length
 }
 
-// Process images endpoint
+// Process images endpoint (existing CSV functionality)
 app.post('/api/process-images', upload.single('csvFile'), async (req, res) => {
     try {
         if (!req.file) {
@@ -279,6 +279,120 @@ app.post('/api/process-images', upload.single('csvFile'), async (req, res) => {
     } catch (error) {
         console.error('Processing error:', error);
         res.status(500).json({ error: error.message });
+    }
+});
+
+// NEW: Webhook endpoint for n8n integration
+app.post('/api/process-webhook', express.json(), async (req, res) => {
+    try {
+        console.log('Received webhook data:', JSON.stringify(req.body, null, 2));
+        
+        // Extract club data from Fillout webhook
+        const filloutData = req.body;
+        
+        // Map Fillout fields to our expected format
+        const clubData = {
+            submissionId: filloutData.submissionId,
+            name: filloutData.responses['What\'s the name of your club/community/group?'] || 
+                  filloutData.responses['Club Name'] || 
+                  'Unknown Club',
+            email: filloutData.responses['What\'s your email?'] || 
+                   filloutData.responses['Email'] || '',
+            heroImage: filloutData.responses['Upload a hero image::'],
+            logoImage: filloutData.responses['Upload your community\'s logo::'],
+            galleryImages: filloutData.responses['Upload up to 4 images for your photo gallery::']
+        };
+        
+        console.log('Mapped club data:', clubData);
+        
+        // Validate that we have at least one image
+        if (!clubData.heroImage && !clubData.logoImage && !clubData.galleryImages) {
+            return res.status(400).json({ 
+                error: 'No images found in submission',
+                receivedData: filloutData 
+            });
+        }
+        
+        // Process the images (reuse existing logic)
+        const clubResult = {
+            name: clubData.name,
+            cleanName: cleanClubName(clubData.name),
+            submissionId: clubData.submissionId,
+            email: clubData.email,
+            processed: [],
+            errors: [],
+            cloudinaryUrls: [],
+            airtableUpdate: null
+        };
+        
+        // Process hero image
+        if (clubData.heroImage && isValidUrl(clubData.heroImage)) {
+            try {
+                const processed = await processImageToCloudinary(clubData.heroImage, clubResult.cleanName, 'hero', 1600);
+                clubResult.processed.push(processed);
+                clubResult.cloudinaryUrls.push(processed.cloudinaryUrl);
+            } catch (error) {
+                console.error(`Hero image error: ${error.message}`);
+                clubResult.errors.push(`Hero image: ${error.message}`);
+            }
+        }
+        
+        // Process logo image
+        if (clubData.logoImage && isValidUrl(clubData.logoImage)) {
+            try {
+                const processed = await processImageToCloudinary(clubData.logoImage, clubResult.cleanName, 'logo', 400);
+                clubResult.processed.push(processed);
+                clubResult.cloudinaryUrls.push(processed.cloudinaryUrl);
+            } catch (error) {
+                console.error(`Logo image error: ${error.message}`);
+                clubResult.errors.push(`Logo image: ${error.message}`);
+            }
+        }
+        
+        // Process gallery images
+        if (clubData.galleryImages) {
+            const galleryUrls = clubData.galleryImages.split(',').map(url => url.trim()).filter(url => url && isValidUrl(url));
+            
+            for (let i = 0; i < galleryUrls.length && i < 4; i++) {
+                try {
+                    const processed = await processImageToCloudinary(galleryUrls[i], clubResult.cleanName, `gallery-${i+1}`, 1200);
+                    clubResult.processed.push(processed);
+                    clubResult.cloudinaryUrls.push(processed.cloudinaryUrl);
+                } catch (error) {
+                    console.error(`Gallery image ${i+1} error: ${error.message}`);
+                    clubResult.errors.push(`Gallery image ${i+1}: ${error.message}`);
+                }
+            }
+        }
+        
+        // Update Airtable if configured
+        if (process.env.AIRTABLE_BASE_ID && process.env.AIRTABLE_TABLE_NAME && process.env.AIRTABLE_TOKEN) {
+            if (clubResult.processed.length > 0) {
+                try {
+                    const airtableUpdate = await updateAirtableRecord(clubResult);
+                    clubResult.airtableUpdate = airtableUpdate;
+                } catch (error) {
+                    console.error(`Airtable update failed: ${error.message}`);
+                    clubResult.errors.push(`Airtable update failed: ${error.message}`);
+                }
+            }
+        }
+        
+        res.json({
+            success: true,
+            message: 'Images processed successfully',
+            clubName: clubResult.name,
+            imagesProcessed: clubResult.processed.length,
+            errors: clubResult.errors,
+            airtableUpdated: clubResult.airtableUpdate ? clubResult.airtableUpdate.success : false
+        });
+        
+    } catch (error) {
+        console.error('Webhook processing error:', error);
+        res.status(500).json({ 
+            error: error.message,
+            receivedData: req.body 
+        });
     }
 });
 
@@ -488,9 +602,6 @@ async function updateAirtableRecord(clubResult) {
             updateFields['Gallery URLs (JSON)'] = JSON.stringify(galleryUrls.filter(url => url));
         }
         
-        // Update only the image fields that should work reliably
-        // Remove status updates that might have field type conflicts
-        
         // Update the record
         const updateUrl = `${searchUrl}/${recordId}`;
         const updateResponse = await fetch(updateUrl, {
@@ -588,6 +699,8 @@ app.get('/api/test-airtable', async (req, res) => {
         });
     }
 });
+
+// Test Cloudinary configuration endpoint
 app.get('/api/test-cloudinary', async (req, res) => {
     try {
         const config = cloudinary.config();
