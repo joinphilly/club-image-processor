@@ -13,7 +13,6 @@ const upload = multer({ dest: 'uploads/' });
 
 // Configure Cloudinary
 if (process.env.CLOUDINARY_URL) {
-    // Parse the CLOUDINARY_URL manually to ensure proper configuration
     const cloudinaryUrl = process.env.CLOUDINARY_URL;
     const urlParts = cloudinaryUrl.match(/cloudinary:\/\/(\d+):([^@]+)@(.+)/);
     
@@ -24,11 +23,9 @@ if (process.env.CLOUDINARY_URL) {
             api_secret: urlParts[2]
         });
     } else {
-        // Fallback to automatic parsing
         cloudinary.config(process.env.CLOUDINARY_URL);
     }
 } else {
-    // Fallback to individual environment variables
     cloudinary.config({
         cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
         api_key: process.env.CLOUDINARY_API_KEY,
@@ -54,20 +51,16 @@ function parseCSV(csvText) {
         
         if (char === '"') {
             if (inQuotes && nextChar === '"') {
-                // Escaped quote inside quoted field
                 currentField += '"';
                 i += 2;
                 continue;
             } else {
-                // Start or end of quoted field
                 inQuotes = !inQuotes;
             }
         } else if (char === ',' && !inQuotes) {
-            // Field separator
             currentRow.push(currentField);
             currentField = '';
         } else if ((char === '\n' || char === '\r') && !inQuotes) {
-            // Row separator
             currentRow.push(currentField);
             if (currentRow.length > 0 && currentRow.some(field => field.trim() !== '')) {
                 rows.push(currentRow);
@@ -75,7 +68,6 @@ function parseCSV(csvText) {
             currentRow = [];
             currentField = '';
             
-            // Skip \r\n combination
             if (char === '\r' && nextChar === '\n') {
                 i++;
             }
@@ -86,7 +78,6 @@ function parseCSV(csvText) {
         i++;
     }
     
-    // Don't forget the last field/row
     if (currentField !== '' || currentRow.length > 0) {
         currentRow.push(currentField);
         if (currentRow.length > 0 && currentRow.some(field => field.trim() !== '')) {
@@ -98,13 +89,9 @@ function parseCSV(csvText) {
     
     const headers = rows[0];
     console.log('CSV Headers found:', headers.length, 'columns');
-    console.log('Column 28:', headers[27]); // Upload a hero image
-    console.log('Column 29:', headers[28]); // Upload your community's logo  
-    console.log('Column 30:', headers[29]); // Upload up to 4 images for your photo gallery
     
     const clubs = [];
     
-    // Process data rows (skip header)
     for (let rowIndex = 1; rowIndex < rows.length; rowIndex++) {
         const values = rows[rowIndex];
         
@@ -113,18 +100,10 @@ function parseCSV(csvText) {
             continue;
         }
         
-        // Extract club name from the correct column
-        const clubName = values[10]; // "What's the name of your club/community/group?"
-        
-        // Extract image URLs from the correct columns (0-indexed)
-        const heroImage = values[27]; // "Upload a hero image::"
-        const logoImage = values[28]; // "Upload your community's logo::"  
-        const galleryImages = values[29]; // "Upload up to 4 images for your photo gallery::"
-        
-        console.log(`\nClub: ${clubName}`);
-        console.log(`Hero: ${heroImage}`);
-        console.log(`Logo: ${logoImage}`);
-        console.log(`Gallery: ${galleryImages}`);
+        const clubName = values[10];
+        const heroImage = values[27];
+        const logoImage = values[28];
+        const galleryImages = values[29];
         
         if ((heroImage && isValidUrl(heroImage)) || 
             (logoImage && isValidUrl(logoImage)) || 
@@ -132,17 +111,15 @@ function parseCSV(csvText) {
             
             const club = {
                 name: cleanClubName(clubName || 'Unknown Club'),
-                originalName: clubName, // Keep original for Airtable updates
+                originalName: clubName,
                 heroImage: (heroImage && isValidUrl(heroImage)) ? heroImage : null,
                 logoImage: (logoImage && isValidUrl(logoImage)) ? logoImage : null,
                 galleryImages: [],
-                // Store other relevant data for Airtable updates
-                submissionId: values[0], // For matching records
-                email: values[8], // Club contact info
-                rawData: values // Full row data for reference
+                submissionId: values[0],
+                email: values[8],
+                rawData: values
             };
             
-            // Process gallery images
             if (galleryImages && galleryImages.trim()) {
                 const galleryUrls = galleryImages.split(',').map(url => url.trim()).filter(url => url && isValidUrl(url));
                 club.galleryImages = galleryUrls;
@@ -155,7 +132,6 @@ function parseCSV(csvText) {
     return clubs;
 }
 
-// Helper function to validate URLs
 function isValidUrl(string) {
     try {
         new URL(string);
@@ -165,23 +141,21 @@ function isValidUrl(string) {
     }
 }
 
-// Clean up club names for file naming
 function cleanClubName(name) {
     return name
-        .replace(/[^\w\s-]/g, '') // Remove special characters
-        .replace(/\s+/g, '-') // Replace spaces with hyphens
+        .replace(/[^\w\s-]/g, '')
+        .replace(/\s+/g, '-')
         .toLowerCase()
-        .substring(0, 50); // Limit length
+        .substring(0, 50);
 }
 
-// Process images endpoint (existing CSV functionality)
+// EXISTING CSV UPLOAD ENDPOINT - unchanged, keeps working
 app.post('/api/process-images', upload.single('csvFile'), async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'No CSV file uploaded' });
         }
         
-        // Read and parse CSV
         const csvContent = await fs.readFile(req.file.path, 'utf-8');
         const clubs = parseCSV(csvContent);
         
@@ -191,7 +165,6 @@ app.post('/api/process-images', upload.single('csvFile'), async (req, res) => {
             return res.status(400).json({ error: 'No clubs with images found in CSV' });
         }
         
-        // Process each club's images
         const results = [];
         
         for (const club of clubs) {
@@ -203,11 +176,10 @@ app.post('/api/process-images', upload.single('csvFile'), async (req, res) => {
                 email: club.email,
                 processed: [],
                 errors: [],
-                cloudinaryUrls: [], // For downloads
-                airtableUpdate: null // Store update info
+                cloudinaryUrls: [],
+                airtableUpdate: null
             };
             
-            // Process hero image
             if (club.heroImage) {
                 try {
                     const processed = await processImageToCloudinary(club.heroImage, club.name, 'hero', 1600);
@@ -219,7 +191,6 @@ app.post('/api/process-images', upload.single('csvFile'), async (req, res) => {
                 }
             }
             
-            // Process logo image
             if (club.logoImage) {
                 try {
                     const processed = await processImageToCloudinary(club.logoImage, club.name, 'logo', 400);
@@ -231,7 +202,6 @@ app.post('/api/process-images', upload.single('csvFile'), async (req, res) => {
                 }
             }
             
-            // Process gallery images
             for (let i = 0; i < club.galleryImages.length && i < 4; i++) {
                 const galleryUrl = club.galleryImages[i];
                 if (galleryUrl) {
@@ -249,7 +219,6 @@ app.post('/api/process-images', upload.single('csvFile'), async (req, res) => {
             results.push(clubResult);
         }
         
-        // Try to update Airtable records if configured
         if (process.env.AIRTABLE_BASE_ID && process.env.AIRTABLE_TABLE_NAME && process.env.AIRTABLE_TOKEN) {
             console.log('Attempting to update Airtable records...');
             for (const result of results) {
@@ -263,11 +232,8 @@ app.post('/api/process-images', upload.single('csvFile'), async (req, res) => {
                     }
                 }
             }
-        } else {
-            console.log('Airtable not configured - skipping database updates');
         }
         
-        // Clean up uploaded file
         await fs.unlink(req.file.path);
         
         res.json({
@@ -282,43 +248,38 @@ app.post('/api/process-images', upload.single('csvFile'), async (req, res) => {
     }
 });
 
-// NEW: Webhook endpoint for n8n integration
-app.post('/api/process-webhook', express.json(), async (req, res) => {
+// NEW: Webhook endpoint for n8n integration - handles cleaned data from n8n Code node
+app.post('/api/process-webhook', async (req, res) => {
     try {
-        console.log('Received webhook data:', JSON.stringify(req.body, null, 2));
+        console.log('Received webhook data from n8n:', JSON.stringify(req.body, null, 2));
         
-        // Extract club data from Fillout webhook
-        const filloutData = req.body;
+        // Data comes cleaned from n8n Code node
+        const clubData = req.body;
         
-        // Map Fillout fields to our expected format
-        const clubData = {
-            submissionId: filloutData.submissionId,
-            name: filloutData.responses['What\'s the name of your club/community/group?'] || 
-                  filloutData.responses['Club Name'] || 
-                  'Unknown Club',
-            email: filloutData.responses['What\'s your email?'] || 
-                   filloutData.responses['Email'] || '',
-            heroImage: filloutData.responses['Upload a hero image::'],
-            logoImage: filloutData.responses['Upload your community\'s logo::'],
-            galleryImages: filloutData.responses['Upload up to 4 images for your photo gallery::']
-        };
-        
-        console.log('Mapped club data:', clubData);
-        
-        // Validate that we have at least one image
-        if (!clubData.heroImage && !clubData.logoImage && !clubData.galleryImages) {
+        // Validate we have required data
+        if (!clubData.clubName) {
             return res.status(400).json({ 
-                error: 'No images found in submission',
-                receivedData: filloutData 
+                error: 'Missing required field: clubName',
+                receivedData: clubData 
             });
         }
         
-        // Process the images (reuse existing logic)
+        // Validate that we have at least one image
+        if (!clubData.heroImageUrl && !clubData.logoImageUrl && !clubData.galleryImageUrls) {
+            return res.status(400).json({ 
+                error: 'No images found in submission',
+                receivedData: clubData 
+            });
+        }
+        
+        console.log('Processing club:', clubData.clubName);
+        
+        // Create result object
         const clubResult = {
-            name: clubData.name,
-            cleanName: cleanClubName(clubData.name),
-            submissionId: clubData.submissionId,
-            email: clubData.email,
+            name: clubData.clubName,
+            cleanName: cleanClubName(clubData.clubName),
+            submissionId: clubData.submissionId || '',
+            email: clubData.email || '',
             processed: [],
             errors: [],
             cloudinaryUrls: [],
@@ -326,9 +287,15 @@ app.post('/api/process-webhook', express.json(), async (req, res) => {
         };
         
         // Process hero image
-        if (clubData.heroImage && isValidUrl(clubData.heroImage)) {
+        if (clubData.heroImageUrl && isValidUrl(clubData.heroImageUrl)) {
             try {
-                const processed = await processImageToCloudinary(clubData.heroImage, clubResult.cleanName, 'hero', 1600);
+                console.log('Processing hero image:', clubData.heroImageUrl);
+                const processed = await processImageToCloudinary(
+                    clubData.heroImageUrl, 
+                    clubResult.cleanName, 
+                    'hero', 
+                    1600
+                );
                 clubResult.processed.push(processed);
                 clubResult.cloudinaryUrls.push(processed.cloudinaryUrl);
             } catch (error) {
@@ -338,9 +305,15 @@ app.post('/api/process-webhook', express.json(), async (req, res) => {
         }
         
         // Process logo image
-        if (clubData.logoImage && isValidUrl(clubData.logoImage)) {
+        if (clubData.logoImageUrl && isValidUrl(clubData.logoImageUrl)) {
             try {
-                const processed = await processImageToCloudinary(clubData.logoImage, clubResult.cleanName, 'logo', 400);
+                console.log('Processing logo image:', clubData.logoImageUrl);
+                const processed = await processImageToCloudinary(
+                    clubData.logoImageUrl, 
+                    clubResult.cleanName, 
+                    'logo', 
+                    400
+                );
                 clubResult.processed.push(processed);
                 clubResult.cloudinaryUrls.push(processed.cloudinaryUrl);
             } catch (error) {
@@ -350,17 +323,35 @@ app.post('/api/process-webhook', express.json(), async (req, res) => {
         }
         
         // Process gallery images
-        if (clubData.galleryImages) {
-            const galleryUrls = clubData.galleryImages.split(',').map(url => url.trim()).filter(url => url && isValidUrl(url));
+        if (clubData.galleryImageUrls) {
+            let galleryUrls = [];
+            
+            // Handle if it's already an array or if it's a comma-separated string
+            if (Array.isArray(clubData.galleryImageUrls)) {
+                galleryUrls = clubData.galleryImageUrls;
+            } else if (typeof clubData.galleryImageUrls === 'string') {
+                galleryUrls = clubData.galleryImageUrls
+                    .split(',')
+                    .map(url => url.trim())
+                    .filter(url => url && isValidUrl(url));
+            }
             
             for (let i = 0; i < galleryUrls.length && i < 4; i++) {
-                try {
-                    const processed = await processImageToCloudinary(galleryUrls[i], clubResult.cleanName, `gallery-${i+1}`, 1200);
-                    clubResult.processed.push(processed);
-                    clubResult.cloudinaryUrls.push(processed.cloudinaryUrl);
-                } catch (error) {
-                    console.error(`Gallery image ${i+1} error: ${error.message}`);
-                    clubResult.errors.push(`Gallery image ${i+1}: ${error.message}`);
+                if (galleryUrls[i] && isValidUrl(galleryUrls[i])) {
+                    try {
+                        console.log(`Processing gallery image ${i+1}:`, galleryUrls[i]);
+                        const processed = await processImageToCloudinary(
+                            galleryUrls[i], 
+                            clubResult.cleanName, 
+                            `gallery-${i+1}`, 
+                            1200
+                        );
+                        clubResult.processed.push(processed);
+                        clubResult.cloudinaryUrls.push(processed.cloudinaryUrl);
+                    } catch (error) {
+                        console.error(`Gallery image ${i+1} error: ${error.message}`);
+                        clubResult.errors.push(`Gallery image ${i+1}: ${error.message}`);
+                    }
                 }
             }
         }
@@ -369,6 +360,7 @@ app.post('/api/process-webhook', express.json(), async (req, res) => {
         if (process.env.AIRTABLE_BASE_ID && process.env.AIRTABLE_TABLE_NAME && process.env.AIRTABLE_TOKEN) {
             if (clubResult.processed.length > 0) {
                 try {
+                    console.log('Updating Airtable record...');
                     const airtableUpdate = await updateAirtableRecord(clubResult);
                     clubResult.airtableUpdate = airtableUpdate;
                 } catch (error) {
@@ -378,11 +370,22 @@ app.post('/api/process-webhook', express.json(), async (req, res) => {
             }
         }
         
-        res.json({
-            success: true,
-            message: 'Images processed successfully',
+        console.log('Webhook processing complete:', {
             clubName: clubResult.name,
             imagesProcessed: clubResult.processed.length,
+            errors: clubResult.errors.length
+        });
+        
+        res.json({
+            success: true,
+            message: 'Images processed successfully via webhook',
+            clubName: clubResult.name,
+            imagesProcessed: clubResult.processed.length,
+            processedImages: clubResult.processed.map(p => ({
+                type: p.type,
+                url: p.cloudinaryUrl,
+                altText: p.altText
+            })),
             errors: clubResult.errors,
             airtableUpdated: clubResult.airtableUpdate ? clubResult.airtableUpdate.success : false
         });
@@ -401,12 +404,10 @@ async function processImageToCloudinary(imageUrl, clubName, imageType, targetWid
     try {
         console.log(`Processing ${imageType} for ${clubName}: ${imageUrl}`);
         
-        // Check if Cloudinary is configured
         if (!process.env.CLOUDINARY_URL && (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET)) {
-            throw new Error('Cloudinary not configured. Please set CLOUDINARY_URL environment variable or individual CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET.');
+            throw new Error('Cloudinary not configured');
         }
         
-        // Download image
         const response = await fetch(imageUrl);
         if (!response.ok) {
             throw new Error(`Failed to download image: ${response.status}`);
@@ -414,7 +415,6 @@ async function processImageToCloudinary(imageUrl, clubName, imageType, targetWid
         
         const imageBuffer = await response.buffer();
         
-        // Process image with Sharp
         const processedBuffer = await sharp(imageBuffer)
             .resize(targetWidth, null, { 
                 withoutEnlargement: true,
@@ -423,7 +423,6 @@ async function processImageToCloudinary(imageUrl, clubName, imageType, targetWid
             .webp({ quality: 85 })
             .toBuffer();
         
-        // Upload to Cloudinary
         const filename = `${clubName}-${imageType}`;
         
         return new Promise((resolve, reject) => {
@@ -440,7 +439,6 @@ async function processImageToCloudinary(imageUrl, clubName, imageType, targetWid
                         reject(new Error(`Cloudinary upload failed: ${error.message}`));
                     } else {
                         console.log('Cloudinary upload successful:', result.secure_url);
-                        // Generate alt text in Brian's format
                         const altText = generateAltText(clubName, imageType);
                         
                         resolve({
@@ -465,7 +463,6 @@ async function processImageToCloudinary(imageUrl, clubName, imageType, targetWid
     }
 }
 
-// Generate alt text in Brian's exact format
 function generateAltText(clubName, imageType) {
     const properClubName = clubName.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
     
@@ -484,21 +481,17 @@ function generateAltText(clubName, imageType) {
     }
 }
 
-// Airtable integration function
 async function updateAirtableRecord(clubResult) {
     try {
         const baseId = process.env.AIRTABLE_BASE_ID;
         const tableName = process.env.AIRTABLE_TABLE_NAME;
         const token = process.env.AIRTABLE_TOKEN;
         
-        // First, find the record by searching for RecordID or club name
         const searchUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableName)}`;
         
-        // Try multiple search strategies to find the record
         let searchResponse;
         let searchData;
         
-        // Strategy 1: Try Submission ID if available
         if (clubResult.submissionId && clubResult.submissionId.trim()) {
             const submissionIdFilter = `{Submission ID} = "${clubResult.submissionId.replace(/"/g, '\\"')}"`;
             console.log('Trying Submission ID search:', submissionIdFilter);
@@ -518,10 +511,8 @@ async function updateAirtableRecord(clubResult) {
             }
         }
         
-        // Strategy 2: If RecordID search failed, try by Name
         if (!searchData || searchData.records.length === 0) {
             if (clubResult.name && clubResult.name.trim()) {
-                // Try original name first, then clean name
                 const names = [clubResult.name, clubResult.cleanName].filter(n => n && n.trim());
                 
                 for (const nameToTry of names) {
@@ -546,25 +537,18 @@ async function updateAirtableRecord(clubResult) {
             }
         }
         
-        // Check if we found anything
         if (!searchResponse.ok) {
             const errorData = await searchResponse.json().catch(() => ({ error: 'Unknown error' }));
-            console.error('Airtable search error details:', errorData);
-            throw new Error(`Airtable search failed: ${searchResponse.status} - ${errorData.error?.message || 'Unknown error'}`);
+            throw new Error(`Airtable search failed: ${searchResponse.status}`);
         }
         
         if (!searchData || searchData.records.length === 0) {
-            // Log what we tried to search for
-            console.log('Search failed. Looking for:');
-            console.log('- Submission ID:', clubResult.submissionId);
-            console.log('- Name:', clubResult.name);
-            throw new Error(`No matching Airtable record found. Tried Submission ID "${clubResult.submissionId}" and Name "${clubResult.name}"`);
+            throw new Error(`No matching Airtable record found for "${clubResult.name}"`);
         }
         
         const recordId = searchData.records[0].id;
         console.log(`Found Airtable record ${recordId} for ${clubResult.name}`);
         
-        // Build update payload using existing Airtable fields
         const updateFields = {};
         const galleryUrls = [];
         
@@ -597,12 +581,10 @@ async function updateAirtableRecord(clubResult) {
             }
         }
         
-        // If we have gallery images, update the Gallery URLs JSON field
         if (galleryUrls.length > 0) {
             updateFields['Gallery URLs (JSON)'] = JSON.stringify(galleryUrls.filter(url => url));
         }
         
-        // Update the record
         const updateUrl = `${searchUrl}/${recordId}`;
         const updateResponse = await fetch(updateUrl, {
             method: 'PATCH',
@@ -636,7 +618,7 @@ async function updateAirtableRecord(clubResult) {
     }
 }
 
-// Test Airtable configuration endpoint
+// Test endpoints
 app.get('/api/test-airtable', async (req, res) => {
     try {
         const baseId = process.env.AIRTABLE_BASE_ID;
@@ -654,7 +636,6 @@ app.get('/api/test-airtable', async (req, res) => {
             });
         }
         
-        // Test basic API access - get first 3 records to see field structure
         const testUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableName)}?maxRecords=3`;
         
         const response = await fetch(testUrl, {
@@ -669,14 +650,11 @@ app.get('/api/test-airtable', async (req, res) => {
             return res.json({
                 error: 'Airtable API failed',
                 status: response.status,
-                message: errorText,
-                url: testUrl.replace(token, 'TOKEN_HIDDEN')
+                message: errorText
             });
         }
         
         const data = await response.json();
-        
-        // Show available field names for debugging
         const availableFields = data.records.length > 0 ? Object.keys(data.records[0].fields) : [];
         
         res.json({
@@ -700,7 +678,6 @@ app.get('/api/test-airtable', async (req, res) => {
     }
 });
 
-// Test Cloudinary configuration endpoint
 app.get('/api/test-cloudinary', async (req, res) => {
     try {
         const config = cloudinary.config();
@@ -716,7 +693,6 @@ app.get('/api/test-cloudinary', async (req, res) => {
             });
         }
         
-        // Test a simple upload with minimal parameters
         const testImage = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
         
         const result = await new Promise((resolve, reject) => {
@@ -726,16 +702,12 @@ app.get('/api/test-cloudinary', async (req, res) => {
                     public_id: 'test-upload-' + Date.now()
                 },
                 (error, result) => {
-                    if (error) {
-                        reject(error);
-                    } else {
-                        resolve(result);
-                    }
+                    if (error) reject(error);
+                    else resolve(result);
                 }
             ).end(testImage);
         });
         
-        // Clean up test image
         await cloudinary.uploader.destroy(result.public_id);
         
         res.json({
@@ -751,13 +723,11 @@ app.get('/api/test-cloudinary', async (req, res) => {
         console.error('Cloudinary test error:', error);
         res.json({
             error: 'Cloudinary test failed',
-            message: error.message,
-            details: error
+            message: error.message
         });
     }
 });
 
-// Download processed images endpoint
 app.post('/api/download-images', express.json(), async (req, res) => {
     try {
         const { results } = req.body;
@@ -766,7 +736,6 @@ app.post('/api/download-images', express.json(), async (req, res) => {
             return res.status(400).json({ error: 'No results provided for download' });
         }
         
-        // Create a ZIP file with all processed images
         const zip = new JSZip();
         
         for (const club of results) {
@@ -775,10 +744,8 @@ app.post('/api/download-images', express.json(), async (req, res) => {
                 
                 for (const processed of club.processed) {
                     try {
-                        // Download from Cloudinary
                         const response = await fetch(processed.cloudinaryUrl);
                         const buffer = await response.buffer();
-                        
                         clubFolder.file(processed.filename, buffer);
                     } catch (error) {
                         console.error(`Failed to download ${processed.filename}:`, error);
@@ -787,7 +754,6 @@ app.post('/api/download-images', express.json(), async (req, res) => {
             }
         }
         
-        // Generate ZIP file
         const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
         
         res.setHeader('Content-Type', 'application/zip');
@@ -806,13 +772,11 @@ app.listen(PORT, () => {
     console.log('Environment check:');
     console.log('CLOUDINARY_URL:', process.env.CLOUDINARY_URL ? 'Set' : 'Missing');
     
-    // Log the actual cloudinary config (without secrets)
     const config = cloudinary.config();
     console.log('Cloudinary cloud_name:', config.cloud_name);
     console.log('Cloudinary api_key:', config.api_key ? config.api_key.substring(0, 6) + '...' : 'Missing');
     console.log('Cloudinary api_secret:', config.api_secret ? '***set***' : 'Missing');
     
-    // Log Airtable configuration
     console.log('Airtable BASE_ID:', process.env.AIRTABLE_BASE_ID ? 'Set' : 'Missing');
     console.log('Airtable TABLE_NAME:', process.env.AIRTABLE_TABLE_NAME ? 'Set' : 'Missing');
     console.log('Airtable TOKEN:', process.env.AIRTABLE_TOKEN ? 'Set' : 'Missing');
