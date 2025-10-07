@@ -582,7 +582,9 @@ async function updateAirtableRecord(clubResult) {
         }
         
         if (galleryUrls.length > 0) {
-            updateFields['Photo Gallery Url'] = galleryUrls.filter(url => url).join(', ');
+            updateFields['Photo Gallery Url'] = galleryUrls.filter(url => url).map(url => ({
+                url: url
+            }));
         }
         
         const updateUrl = `${searchUrl}/${recordId}`;
